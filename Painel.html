@@ -1,115 +1,41 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Painel de Carregamento</title>
 
-<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-database-compat.js"></script>
 
 <style>
-  :root{
-    --bg:#071028;
-    --accent:#38bdf8;
-    --muted:#94a3b8;
-    --ofr:#ef4444
-  }
-  body{
-    margin:0;
-    font-family:Inter,Segoe UI,Arial;
-    background:linear-gradient(180deg,#071028 0%, #0b1220 100%);
-    color:#fff
-  }
-  .wrap{
-    max-width:1400px;
-    margin:16px auto;
-    padding:18px
-  }
-  header{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:12px
-  }
-  h1{
-    margin:0;
-    font-size:26px;
-    color:var(--accent)
-  }
-  #clock{
-    font-size:18px;
-    color:var(--muted)
-  }
-  table{
-    width:100%;
-    border-collapse:collapse;
-    margin-top:14px;
-    font-size:16px
-  }
-  th,td{
-    padding:12px;
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    text-align:center
-  }
-  th{
-    background:rgba(255,255,255,0.03);
-    color:var(--accent);
-    font-weight:700
-  }
-  tr.ofr{
-    background:rgba(239,68,68,0.18);
-    font-weight:800
-  }
-  tr.ofr td:first-child::before{
-    content:"🚨 PRIORITÁRIO - OFR";
-    display:block;
-    color:var(--ofr);
-    font-weight:900;
-    margin-bottom:6px
-  }
-  footer{
-    text-align:center;
-    margin-top:12px;
-    color:var(--muted);
-    font-size:14px
-  }
-  @media(max-width:900px){
-    th,td{font-size:13px;padding:8px}
-  }
+body{background:#071028;color:#fff;font-family:Arial;margin:0;padding:20px}
+h1{text-align:center;color:#38bdf8}
+table{width:100%;border-collapse:collapse;margin-top:20px;font-size:18px}
+th,td{padding:12px;border-bottom:1px solid #334155;text-align:center}
+.ofr{background:#7f1d1d;font-weight:bold}
 </style>
 </head>
 
 <body>
-<div class="wrap">
-  <header>
-    <h1>🚛 PAINEL DE CARREGAMENTO</h1>
-    <div id="clock">--:--:--</div>
-  </header>
+<h1>🚛 PAINEL DE CARREGAMENTO</h1>
 
-  <table id="tabelaPainel">
-    <thead>
-      <tr>
-        <th>Ordem</th>
-        <th>Transporte</th>
-        <th>Placa</th>
-        <th>Entrada Usina</th>
-        <th>Chegada Área</th>
-        <th>Tempo Usina</th>
-        <th>Tempo Área</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <footer>
-    Atualização automática em tempo real — pressione F11 para tela cheia
-  </footer>
-</div>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Transporte</th>
+<th>Placa</th>
+<th>Chegada</th>
+<th>Tempo Área</th>
+<th>Tipo</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
 
 <script>
-/* ================= FIREBASE CONFIG ================= */
+// 🔥 FIREBASE CONFIG (IGUAL AO CADASTRO)
 const firebaseConfig = {
   apiKey: "AIzaSyC4QzvRKk-l7F9RbgIt_N7_It3FxZ_TIhM",
   authDomain: "controle-carregamento.firebaseapp.com",
@@ -122,72 +48,42 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const tbody = document.getElementById("tbody");
 
-/* ================= ESTADO EM MEMÓRIA ================= */
-const tbody = document.querySelector("#tabelaPainel tbody");
-let dadosFila = {};
+let fila = {};
 
-/* ================= HELPERS ================= */
-const format = iso =>
-  iso ? new Date(iso).toLocaleString("pt-BR",{hour12:false}) : "—";
-
-const elapsed = iso => {
-  if(!iso) return "—";
+function tempo(iso){
   const diff = Date.now() - new Date(iso).getTime();
-  if(diff < 0) return "—";
-  const m = Math.floor(diff / 60000);
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return h > 0 ? `${h}h ${mm}m` : `${mm}m`;
-};
+  const m = Math.floor(diff/60000);
+  return m < 0 ? "-" : m + " min";
+}
 
-/* ================= RENDERIZAÇÃO ================= */
-function renderTabela(){
-  const list = Object.values(dadosFila);
-
-  list.sort((a,b)=>{
-    if(a.tipo === "OFR" && b.tipo !== "OFR") return -1;
-    if(a.tipo !== "OFR" && b.tipo === "OFR") return 1;
-    return new Date(a.chegada) - new Date(b.chegada);
-  });
+function render(){
+  const lista = Object.values(fila)
+    .sort((a,b)=>a.tipo==="OFR"?-1:1);
 
   tbody.innerHTML = "";
-
-  if(!list.length){
-    tbody.innerHTML = `<tr><td colspan="7">Nenhum veículo na fila</td></tr>`;
-    return;
-  }
-
-  list.forEach((v,i)=>{
-    const tr = document.createElement("tr");
-    if(v.tipo === "OFR") tr.classList.add("ofr");
-    tr.innerHTML = `
-      <td>${i+1}</td>
-      <td>${v.transporte}</td>
-      <td>${v.placa}</td>
-      <td>${format(v.entrada)}</td>
-      <td>${format(v.chegada)}</td>
-      <td>${elapsed(v.entrada)}</td>
-      <td>${elapsed(v.chegada)}</td>
-    `;
-    tbody.appendChild(tr);
+  lista.forEach((v,i)=>{
+    tbody.innerHTML += `
+      <tr class="${v.tipo==="OFR"?"ofr":""}">
+        <td>${i+1}</td>
+        <td>${v.transporte}</td>
+        <td>${v.placa}</td>
+        <td>${new Date(v.chegada).toLocaleTimeString()}</td>
+        <td>${tempo(v.chegada)}</td>
+        <td>${v.tipo}</td>
+      </tr>`;
   });
 }
 
-/* ================= FIREBASE (TEMPO REAL) ================= */
-db.ref("fila").on("value", snap => {
-  dadosFila = snap.val() || {};
-  renderTabela(); // atualiza imediatamente quando algo muda
+// 🔄 TEMPO REAL
+db.ref("fila").on("value", snap=>{
+  fila = snap.val() || {};
+  render();
 });
 
-/* ================= ATUALIZA TEMPOS ================= */
-setInterval(renderTabela, 1000);
-
-/* ================= RELÓGIO ================= */
-setInterval(()=>{
-  document.getElementById("clock").textContent =
-    new Date().toLocaleTimeString("pt-BR",{hour12:false});
-},1000);
+// ⏱️ Atualiza tempo sozinho
+setInterval(render, 60000);
 </script>
 </body>
 </html>
